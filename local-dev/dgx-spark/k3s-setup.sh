@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://github.com/lehph/GenAIReferenceArchitecture.git}"
+REPO_URL="${REPO_URL:-https://github.com/LePhanFF/GenAIReferenceArchitecture.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 K3S_VERSION="${K3S_VERSION:-v1.30.2+k3s1}"
 NAMESPACE="genai"
