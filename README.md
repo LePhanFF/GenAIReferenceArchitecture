@@ -265,3 +265,51 @@ This repository is a reference implementation for a GenAI/MLOps platform, built 
 - Production-grade CI/CD for ML systems
 
 Built by someone with 15 years of DevOps/infrastructure experience, demonstrating the intersection of infrastructure engineering and AI/ML operations.
+
+## Official Documentation & References
+
+See [REFERENCES.md](REFERENCES.md) for the complete list. Key links:
+
+### Core Technologies
+| Technology | Docs | GitHub |
+|---|---|---|
+| vLLM | [docs.vllm.ai](https://docs.vllm.ai) | [vllm-project/vllm](https://github.com/vllm-project/vllm) |
+| LangChain | [python.langchain.com](https://python.langchain.com/docs/introduction/) | [langchain-ai/langchain](https://github.com/langchain-ai/langchain) |
+| LangServe | [langchain.com/langserve](https://python.langchain.com/docs/langserve/) | [langchain-ai/langserve](https://github.com/langchain-ai/langserve) |
+| LangSmith | [smith.langchain.com](https://docs.smith.langchain.com/) | — |
+| pgvector | — | [pgvector/pgvector](https://github.com/pgvector/pgvector) |
+| Unsloth | [unsloth.ai](https://unsloth.ai/) | [unslothai/unsloth](https://github.com/unslothai/unsloth) |
+| sentence-transformers | [sbert.net](https://www.sbert.net/) | [UKPLab/sentence-transformers](https://github.com/UKPLab/sentence-transformers) |
+| FastAPI | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/) | [fastapi/fastapi](https://github.com/fastapi/fastapi) |
+| scikit-learn | [scikit-learn.org](https://scikit-learn.org/stable/) | [scikit-learn/scikit-learn](https://github.com/scikit-learn/scikit-learn) |
+
+### Infrastructure
+| Technology | Docs | GitHub |
+|---|---|---|
+| Terraform AWS EKS | [registry.terraform.io/modules/terraform-aws-modules/eks](https://registry.terraform.io/modules/terraform-aws-modules/eks/aws/latest) | [terraform-aws-modules/terraform-aws-eks](https://github.com/terraform-aws-modules/terraform-aws-eks) |
+| Terraform GCP GKE | [registry.terraform.io/modules/terraform-google-modules/kubernetes-engine](https://registry.terraform.io/modules/terraform-google-modules/kubernetes-engine/google/latest) | [terraform-google-modules/terraform-google-kubernetes-engine](https://github.com/terraform-google-modules/terraform-google-kubernetes-engine) |
+| Karpenter | [karpenter.sh](https://karpenter.sh/) | [kubernetes-sigs/karpenter](https://github.com/kubernetes-sigs/karpenter) |
+| ArgoCD | [argo-cd.readthedocs.io](https://argo-cd.readthedocs.io/) | [argoproj/argo-cd](https://github.com/argoproj/argo-cd) |
+| KEDA | [keda.sh](https://keda.sh/) | [kedacore/keda](https://github.com/kedacore/keda) |
+| NVIDIA GPU Operator | [docs.nvidia.com/datacenter/cloud-native/gpu-operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/index.html) | [NVIDIA/gpu-operator](https://github.com/NVIDIA/gpu-operator) |
+| K3s | [k3s.io](https://k3s.io/) | [k3s-io/k3s](https://github.com/k3s-io/k3s) |
+| Kustomize | [kustomize.io](https://kustomize.io/) | [kubernetes-sigs/kustomize](https://github.com/kubernetes-sigs/kustomize) |
+
+### Models Used
+| Model | HuggingFace | Params | Purpose |
+|---|---|---|---|
+| Qwen2.5-1.5B-Instruct | [Qwen/Qwen2.5-1.5B-Instruct](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct) | 1.5B | Default dev LLM |
+| all-MiniLM-L6-v2 | [sentence-transformers/all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) | 22M | Embedding model |
+| TinyLlama-1.1B | [TinyLlama/TinyLlama-1.1B-Chat-v1.0](https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0) | 1.1B | Minimum viable LLM |
+| Phi-3-mini-4k | [microsoft/Phi-3-mini-4k-instruct](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct) | 3.8B | Better quality option |
+
+### Industry Reference Architectures
+| Resource | Description |
+|---|---|
+| [AWS GenAI Lens](https://docs.aws.amazon.com/wellarchitected/latest/generative-ai-lens/generative-ai-lens.html) | AWS Well-Architected Framework for GenAI |
+| [GCP GenAI Architecture](https://cloud.google.com/architecture/ai-ml/generative-ai) | Google Cloud GenAI reference patterns |
+| [NVIDIA NeMo on K8s](https://github.com/NVIDIA/NeMo) | NVIDIA's LLM training framework |
+| [Ray Serve LLM](https://docs.ray.io/en/latest/serve/tutorials/vllm-example.html) | Ray + vLLM serving pattern |
+| [LangChain RAG Tutorial](https://python.langchain.com/docs/tutorials/rag/) | Official LangChain RAG guide |
+| [Karpenter GPU Best Practices](https://karpenter.sh/docs/concepts/nodepools/) | GPU NodePool configuration |
+| [KEDA HTTP Scaler](https://keda.sh/docs/scalers/http/) | Scale-to-zero for HTTP workloads |
