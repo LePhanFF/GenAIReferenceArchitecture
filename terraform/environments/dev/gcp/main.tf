@@ -1,17 +1,20 @@
 ###############################################################################
 # Dev Environment — GCP GKE
 #
-# Estimated monthly cost (idle):
-#   1x e2-medium (CPU baseline):  ~$25
-#   Cloud NAT:                    ~$1 + data
-#   GKE control plane (free):     $0 (free tier for 1 zonal/regional cluster)
-#   Total idle:                   ~$26/mo
+# COST OPTIMIZED (GCP is MUCH cheaper than AWS for dev):
+#   GKE control plane (zonal):  $0      (FREE — first zonal cluster per project)
+#   1x e2-small SPOT:           ~$5/mo  (CPU baseline)
+#   Cloud NAT:                  ~$1/mo  (minimal)
+#   GPU (when running):         ~$0.23/hr spot (g2-standard-4 L4)
+#   GPU (idle):                 $0      (scale-to-zero)
+#   ─────────────────────────────────────
+#   Total idle:                 ~$6/mo  (vs AWS ~$78/mo)
 #
-# GPU cost (when running):
-#   g2-standard-4 spot (L4):     ~$0.35/hr ($252/mo if 24/7)
-#   With scale-to-zero:          $0 when not in use
-#
-# GCP is significantly cheaper than AWS for dev (no EKS control plane fee)
+# WHY GCP IS CHEAPER:
+# - Free zonal cluster (AWS EKS: $73/mo)
+# - Spot L4 GPU: $0.23/hr (AWS g5.xlarge spot: $0.30/hr)
+# - e2-small spot: $0.007/hr (AWS t3.small spot: $0.006/hr — similar)
+# - Cloud NAT: $1/mo (AWS NAT Gateway: $32/mo)
 #
 # To destroy: terraform destroy
 ###############################################################################
@@ -43,7 +46,7 @@ module "networking" {
 }
 
 # -----------------------------------------------------------------------------
-# GKE Cluster
+# GKE Cluster — ZONAL (FREE), ALL SPOT
 # -----------------------------------------------------------------------------
 module "gke" {
   source = "../../../modules/gke"
@@ -51,15 +54,17 @@ module "gke" {
   cluster_name = local.cluster_name
   project_id   = var.project_id
   region       = var.region
+  zone         = "a" # COST: Zonal = FREE control plane (regional = $73/mo)
   network      = module.networking.network_name
   subnetwork   = module.networking.subnet_name
 
-  # CPU nodes — minimal baseline
-  cpu_machine_type = "e2-medium"
+  # CPU nodes — SPOT, smallest viable
+  cpu_machine_type = "e2-small" # COST: 2 vCPU shared, 2GB — enough for dev
+  cpu_spot         = true       # COST: Spot saves 60-91%
   cpu_min_nodes    = 1
   cpu_max_nodes    = 3
 
-  # GPU nodes — scale to zero
+  # GPU nodes — SPOT, scale to zero
   # g2-standard-4: 1x L4 GPU, 4 vCPU, 16GB RAM
   gpu_machine_type = "g2-standard-4"
   gpu_max_nodes    = 2 # Cost safety limit for dev

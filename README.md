@@ -89,13 +89,34 @@ Production-ready Generative AI platform on Kubernetes. Multi-cloud (AWS EKS + GC
 
 ## Cost Optimization
 
-This architecture is designed for minimal cloud spend:
+This architecture is designed for **minimum possible cloud spend**:
 
-- **Scale-to-zero GPU**: KEDA scales inference pods to 0 when idle. GPU nodes scale down via Cluster Autoscaler. You pay $0 when nobody is using it.
-- **Spot/Preemptible instances**: Training jobs use spot instances (60-90% savings).
-- **Right-sized models**: Default to Qwen2.5-1.5B (~3GB VRAM) instead of 70B+ models.
-- **Shared embedding**: CPU-based embedding service, no GPU needed.
-- **pgvector over managed**: Self-hosted pgvector instead of expensive managed vector DBs.
+### Monthly Idle Cost Comparison
+
+| | GCP (recommended for dev) | AWS |
+|---|---|---|
+| Control plane | **$0** (free zonal cluster) | $73 (EKS) |
+| CPU node (1x spot) | ~$5 (e2-small spot) | ~$5 (t3.small spot) |
+| NAT | ~$1 (Cloud NAT) | **$0** (skipped, public subnets) |
+| GPU (idle) | **$0** (scale-to-zero) | **$0** (scale-to-zero) |
+| **Total idle** | **~$6/mo** | **~$78/mo** |
+
+### GPU Cost When Running
+
+| Cloud | Instance | GPU | Spot Price | On-Demand | Savings |
+|---|---|---|---|---|---|
+| GCP | g2-standard-4 | 1x L4 24GB | **$0.23/hr** | $0.76/hr | 70% |
+| AWS | g6.xlarge | 1x L4 24GB | **$0.24/hr** | $0.80/hr | 70% |
+| AWS | g5.xlarge | 1x A10G 24GB | **$0.30/hr** | $1.01/hr | 70% |
+
+### Cost Strategies Used
+- **Scale-to-zero GPU**: KEDA scales inference pods to 0 → GPU nodes drain via Karpenter/NAP → $0 GPU cost when idle
+- **ALL spot instances**: CPU and GPU nodes use spot/preemptible (60-91% savings)
+- **Free GKE control plane**: Zonal cluster (first one free per GCP project)
+- **No NAT gateway on AWS**: Dev uses public subnets (saves $32/mo)
+- **Smallest viable model**: Qwen2.5-1.5B (~3GB VRAM) instead of 70B+
+- **CPU-only embedding**: all-MiniLM-L6-v2 runs on CPU (no GPU needed)
+- **Self-hosted pgvector**: Free, vs Pinecone ($70+/mo)
 
 ## Quick Start
 

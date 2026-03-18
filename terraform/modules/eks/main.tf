@@ -1,11 +1,23 @@
 ###############################################################################
 # EKS Cluster with Karpenter for GPU Scale-to-Zero
 #
-# Cost notes:
-# - CPU nodes: t3.medium (~$0.042/hr) — minimal baseline
-# - GPU nodes: g5.xlarge spot (~$0.40/hr vs $1.006 on-demand) — 60% savings
+# COST OPTIMIZATION:
+# - EKS control plane: $73/mo (unavoidable on AWS, GCP is free)
+# - CPU nodes: t3.small SPOT (~$0.006/hr = ~$4.50/mo vs $15 on-demand)
+# - GPU nodes: g5.xlarge/g6.xlarge SPOT (~$0.30/hr vs $1.00 on-demand = 70%)
+# - NAT Gateway: $32/mo — SKIP for dev (use public subnets)
 # - Karpenter consolidation removes idle GPU nodes in 30s
-# - Total idle cost: ~$30/mo (1x t3.medium + NAT gateway)
+#
+# IDLE COST (with NAT gateway skip):
+#   EKS control plane:  $73/mo
+#   1x t3.small spot:   ~$5/mo
+#   Total:              ~$78/mo  (was $135 — saved $57)
+#
+# IDLE COST (with NAT gateway):
+#   Add NAT gateway:    +$32/mo
+#   Total:              ~$110/mo
+#
+# GPU cost: $0 when not in use (Karpenter scale-to-zero)
 ###############################################################################
 
 terraform {
@@ -171,7 +183,8 @@ resource "aws_eks_node_group" "cpu" {
   subnet_ids      = var.subnet_ids
 
   instance_types = var.cpu_instance_types
-  capacity_type  = "ON_DEMAND" # CPU baseline stays on-demand for reliability
+  # COST: Spot for dev saves ~70%. For prod, switch to ON_DEMAND
+  capacity_type  = var.cpu_spot ? "SPOT" : "ON_DEMAND"
 
   scaling_config {
     desired_size = var.cpu_desired_size

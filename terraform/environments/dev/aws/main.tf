@@ -1,16 +1,14 @@
 ###############################################################################
 # Dev Environment — AWS EKS
 #
-# Estimated monthly cost (idle):
-#   1x t3.medium (CPU baseline):  ~$30
-#   1x NAT Gateway:               ~$32
-#   EKS control plane:            ~$73
-#   Total idle:                   ~$135/mo
-#
-# GPU cost (when running):
-#   g5.xlarge spot:               ~$0.40/hr ($290/mo if 24/7)
-#   g6.xlarge spot:               ~$0.35/hr ($252/mo if 24/7)
-#   But with scale-to-zero:      $0 when not in use
+# COST OPTIMIZED:
+#   EKS control plane:          $73/mo  (unavoidable, GCP is FREE)
+#   1x t3.small SPOT:           ~$5/mo  (was $30 on-demand t3.medium)
+#   NAT Gateway:                $0      (skipped — nodes use public subnets)
+#   GPU (when running):         ~$0.30/hr spot (g5.xlarge)
+#   GPU (idle):                 $0      (Karpenter scale-to-zero)
+#   ─────────────────────────────────────
+#   Total idle:                 ~$78/mo (was $135 — saved 42%)
 #
 # To destroy: terraform destroy
 ###############################################################################
@@ -27,21 +25,22 @@ locals {
 }
 
 # -----------------------------------------------------------------------------
-# Networking
+# Networking — NO NAT gateway for dev (saves $32/mo)
 # -----------------------------------------------------------------------------
 module "networking" {
   source = "../../../modules/networking/aws"
 
-  name         = local.cluster_name
-  cluster_name = local.cluster_name
-  vpc_cidr     = var.vpc_cidr
-  az_count     = 2 # 2 AZs is enough for dev
+  name               = local.cluster_name
+  cluster_name       = local.cluster_name
+  vpc_cidr           = var.vpc_cidr
+  az_count           = 2 # 2 AZs is enough for dev
+  enable_nat_gateway = false # COST: Save $32/mo — nodes use public subnets
 
   tags = local.tags
 }
 
 # -----------------------------------------------------------------------------
-# EKS Cluster
+# EKS Cluster — SPOT CPU nodes
 # -----------------------------------------------------------------------------
 module "eks" {
   source = "../../../modules/eks"
@@ -51,15 +50,16 @@ module "eks" {
   vpc_id             = module.networking.vpc_id
   subnet_ids         = module.networking.private_subnet_ids
 
-  # CPU nodes — minimal baseline
-  cpu_instance_types = ["t3.medium"]
+  # CPU nodes — SPOT for dev (saves ~70%)
+  cpu_instance_types = ["t3.small"] # COST: t3.small ($0.021/hr) vs t3.medium ($0.042)
+  cpu_spot           = true         # COST: SPOT saves another ~70%
   cpu_desired_size   = 1
   cpu_min_size       = 1
   cpu_max_size       = 3
 
-  # GPU nodes via Karpenter — scale to zero
+  # GPU nodes via Karpenter — SPOT, scale to zero
   # g5.xlarge: A10G 24GB, g6.xlarge: L4 24GB
-  # Both are spot instances, Karpenter picks cheapest available
+  # Karpenter picks cheapest available spot
   gpu_instance_types = var.gpu_instance_types
   gpu_limit          = 2 # Max 2 GPUs in dev (cost safety)
 

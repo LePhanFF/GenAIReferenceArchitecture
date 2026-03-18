@@ -14,6 +14,12 @@ variable "region" {
   default     = "us-central1"
 }
 
+variable "zone" {
+  description = "GCP zone suffix (e.g., 'a' for us-central1-a). Set to '' for regional cluster. COST: Zonal = FREE control plane, Regional = $73/mo"
+  type        = string
+  default     = "a" # Default to zonal for free control plane
+}
+
 variable "network" {
   description = "VPC network name or self_link"
   type        = string
@@ -31,9 +37,15 @@ variable "master_ipv4_cidr" {
 }
 
 variable "cpu_machine_type" {
-  description = "Machine type for CPU node pool"
+  description = "Machine type for CPU node pool. COST: e2-small ($0.017/hr) is enough for dev"
   type        = string
-  default     = "e2-medium"
+  default     = "e2-small"
+}
+
+variable "cpu_spot" {
+  description = "Use spot instances for CPU nodes. COST: 60-91% savings. Safe for dev, disable for prod."
+  type        = bool
+  default     = true
 }
 
 variable "cpu_min_nodes" {

@@ -1,11 +1,19 @@
 ###############################################################################
 # GKE Standard Cluster with NAP for GPU Scale-to-Zero
 #
-# Cost notes:
-# - CPU nodes: e2-medium (~$0.034/hr) — minimal baseline
-# - GPU nodes: g2-standard-4 preemptible (~$0.35/hr vs $0.98 on-demand)
-# - NAP removes idle GPU nodes automatically (scale to zero)
-# - Total idle cost: ~$25/mo (1x e2-medium)
+# COST OPTIMIZATION:
+# - Control plane: FREE (first zonal cluster per project is free)
+# - CPU nodes: e2-small SPOT (~$0.007/hr = ~$5/mo)
+# - GPU nodes: g2-standard-4 SPOT (~$0.23/hr vs $0.76 on-demand = 70% savings)
+# - NAP auto-provisions SPOT nodes for any GPU type
+# - All nodes scale to zero when idle
+# - Total idle cost: ~$5/mo (1x e2-small spot)
+# - GPU cost: $0 when not in use
+#
+# ZONAL vs REGIONAL:
+# - Zonal (us-central1-a): FREE control plane, single zone
+# - Regional (us-central1): $0.10/hr = $73/mo, multi-zone HA
+# - For dev: USE ZONAL. For prod: switch to regional.
 #
 # Why Standard + NAP instead of Autopilot:
 # - Autopilot has GPU support but less control over node configuration
@@ -31,7 +39,9 @@ terraform {
 # -----------------------------------------------------------------------------
 resource "google_container_cluster" "this" {
   name     = var.cluster_name
-  location = var.region
+  # COST: Use zonal for FREE control plane (first zonal cluster is free)
+  # Set var.zone to null and var.location to region for regional (paid) cluster
+  location = var.zone != "" ? "${var.region}-${var.zone}" : var.region
   project  = var.project_id
 
   # Remove default node pool — we manage our own
@@ -72,7 +82,7 @@ resource "google_container_cluster" "this" {
     }
 
     auto_provisioning_defaults {
-      # Use preemptible/spot for auto-provisioned nodes (including GPU)
+      # COST: NAP auto-provisions SPOT nodes by default (including GPU)
       management {
         auto_repair  = true
         auto_upgrade = true
@@ -81,6 +91,10 @@ resource "google_container_cluster" "this" {
       # Disk configuration for auto-provisioned nodes
       disk_size_gb = 100
       disk_type    = "pd-balanced"
+
+      # COST: Use spot for all auto-provisioned nodes (60-91% savings)
+      # This means any GPU nodes NAP creates will be spot instances
+      provisioning_model = "SPOT"
 
       # Service account for auto-provisioned nodes
       service_account = google_service_account.gke_nodes.email
@@ -152,13 +166,18 @@ resource "google_container_cluster" "this" {
 }
 
 # -----------------------------------------------------------------------------
-# CPU Node Pool — always-on baseline
-# e2-medium: 2 vCPU (shared), 4 GB RAM — cheapest option for system pods
+# CPU Node Pool — baseline for system pods
+#
+# COST OPTIMIZATION:
+# - e2-small SPOT: ~$0.007/hr = ~$5/mo (vs e2-medium on-demand ~$25/mo)
+# - e2-small: 2 vCPU (shared), 2 GB RAM — sufficient for system pods + services
+# - Spot for dev is fine — worst case pods reschedule in seconds
+# - For prod: switch to on-demand (spot = false)
 # -----------------------------------------------------------------------------
 resource "google_container_node_pool" "cpu" {
   name     = "${var.cluster_name}-cpu"
   cluster  = google_container_cluster.this.name
-  location = var.region
+  location = var.zone != "" ? "${var.region}-${var.zone}" : var.region
   project  = var.project_id
 
   # Scale down to 1 node when idle
@@ -169,12 +188,13 @@ resource "google_container_node_pool" "cpu" {
 
   node_config {
     machine_type = var.cpu_machine_type
-    disk_size_gb = 50
+    disk_size_gb = 30  # COST: 30GB is enough for dev, saves ~$1/mo per node
     disk_type    = "pd-standard"
 
-    # Use preemptible for CPU nodes too (optional — comment out for reliability)
-    # preemptible = true
-    spot = false # CPU baseline should be reliable
+    # COST: Spot instances for CPU — 60-91% cheaper
+    # For dev: spot is fine (pods reschedule quickly)
+    # For prod: set spot = false
+    spot = var.cpu_spot
 
     service_account = google_service_account.gke_nodes.email
     oauth_scopes = [
@@ -214,7 +234,7 @@ resource "google_container_node_pool" "cpu" {
 resource "google_container_node_pool" "gpu" {
   name     = "${var.cluster_name}-gpu"
   cluster  = google_container_cluster.this.name
-  location = var.region
+  location = var.zone != "" ? "${var.region}-${var.zone}" : var.region
   project  = var.project_id
 
   # Scale to zero when no GPU pods are pending

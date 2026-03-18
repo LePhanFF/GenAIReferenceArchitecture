@@ -20,9 +20,15 @@ variable "subnet_ids" {
 }
 
 variable "cpu_instance_types" {
-  description = "Instance types for CPU managed node group"
+  description = "Instance types for CPU managed node group. COST: t3.small ($0.021/hr) is enough for dev"
   type        = list(string)
-  default     = ["t3.medium"]
+  default     = ["t3.small"]
+}
+
+variable "cpu_spot" {
+  description = "Use spot instances for CPU nodes. COST: ~70% savings. Safe for dev, disable for prod."
+  type        = bool
+  default     = true
 }
 
 variable "cpu_desired_size" {

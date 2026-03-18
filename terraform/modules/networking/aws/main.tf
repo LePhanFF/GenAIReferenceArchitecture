@@ -1,9 +1,14 @@
 ###############################################################################
 # AWS VPC for EKS
 #
-# Simple networking: 2 AZs, public + private subnets, NAT gateway
-# NAT gateway cost: ~$32/mo (fixed) + data transfer
-# For dev: consider using a single NAT gateway to save costs
+# COST OPTIMIZATION:
+# - NAT Gateway: $32/mo fixed + data transfer — SKIP for dev!
+# - Set enable_nat_gateway = false to save $32/mo
+# - Without NAT, nodes go in public subnets (fine for dev)
+# - For prod: enable NAT gateway + private subnets
+#
+# Dev cost:  $0/mo (VPC, subnets, IGW are free)
+# Prod cost: ~$32/mo (NAT gateway)
 ###############################################################################
 
 terraform {
@@ -92,10 +97,14 @@ resource "aws_route_table_association" "public" {
 }
 
 # -----------------------------------------------------------------------------
-# NAT Gateway (single for dev — add per-AZ for production)
-# Cost: ~$32/mo fixed + $0.045/GB data processing
+# NAT Gateway (OPTIONAL — skip for dev to save $32/mo)
+#
+# COST: $32/mo fixed + $0.045/GB data processing
+# For dev: set enable_nat_gateway = false, nodes use public subnets
+# For prod: enable NAT gateway + use private subnets
 # -----------------------------------------------------------------------------
 resource "aws_eip" "nat" {
+  count  = var.enable_nat_gateway ? 1 : 0
   domain = "vpc"
 
   tags = merge(var.tags, {
@@ -104,7 +113,8 @@ resource "aws_eip" "nat" {
 }
 
 resource "aws_nat_gateway" "this" {
-  allocation_id = aws_eip.nat.id
+  count         = var.enable_nat_gateway ? 1 : 0
+  allocation_id = aws_eip.nat[0].id
   subnet_id     = aws_subnet.public[0].id
 
   tags = merge(var.tags, {
@@ -132,11 +142,12 @@ resource "aws_subnet" "private" {
 }
 
 resource "aws_route_table" "private" {
+  count  = var.enable_nat_gateway ? 1 : 0
   vpc_id = aws_vpc.this.id
 
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.this.id
+    nat_gateway_id = aws_nat_gateway.this[0].id
   }
 
   tags = merge(var.tags, {
@@ -145,10 +156,19 @@ resource "aws_route_table" "private" {
 }
 
 resource "aws_route_table_association" "private" {
-  count = var.az_count
+  count = var.enable_nat_gateway ? var.az_count : 0
 
   subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private.id
+  route_table_id = aws_route_table.private[0].id
+}
+
+# When no NAT gateway, route private subnets through IGW (public route)
+# COST: Saves $32/mo but nodes get public IPs — acceptable for dev
+resource "aws_route_table_association" "private_public" {
+  count = var.enable_nat_gateway ? 0 : var.az_count
+
+  subnet_id      = aws_subnet.private[count.index].id
+  route_table_id = aws_route_table.public.id
 }
 
 # -----------------------------------------------------------------------------
@@ -174,6 +194,12 @@ variable "az_count" {
   description = "Number of availability zones to use"
   type        = number
   default     = 2
+}
+
+variable "enable_nat_gateway" {
+  description = "Enable NAT Gateway ($32/mo). Set false for dev to save costs — nodes use public subnets instead."
+  type        = bool
+  default     = false # COST: Save $32/mo for dev
 }
 
 variable "tags" {
