@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: genai
+
+resources:
+  - namespace.yaml
+
+  # GPU workloads — KEDA scales these to zero when idle (major cost saver)
+  - inference/deployment.yaml
+  - inference/service.yaml
+  - inference/keda-scaledobject.yaml
+
+  # CPU workloads — lightweight, always-on or scale-to-zero via KEDA
+  - embedding/deployment.yaml
+  - embedding/service.yaml
+
+  # Application services — CPU only
+  - rag-service/deployment.yaml
+  - rag-service/service.yaml
+  - rag-service/configmap.yaml
+
+  - agent-service/deployment.yaml
+  - agent-service/service.yaml
+
+  - ml-service/deployment.yaml
+  - ml-service/service.yaml
+
+  # Data stores
+  - pgvector/statefulset.yaml
+  - pgvector/service.yaml
+
+  # Ingress
+  - ingress.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: genai-platform

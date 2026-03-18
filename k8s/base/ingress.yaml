@@ -1,0 +1,58 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: genai-ingress
+  labels:
+    app: genai-ingress
+  annotations:
+    # NGINX ingress controller
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    # Longer timeouts for LLM inference (streaming responses can take 30s+)
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    # Enable CORS for frontend access
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    # Rate limiting — protect GPU pods from abuse
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: genai.example.com
+      http:
+        paths:
+          # RAG service — LangChain retrieval-augmented generation
+          - path: /api/rag
+            pathType: Prefix
+            backend:
+              service:
+                name: rag-service
+                port:
+                  number: 8000
+
+          # Agent service — LangChain agent with tools
+          - path: /api/agent
+            pathType: Prefix
+            backend:
+              service:
+                name: agent-service
+                port:
+                  number: 8000
+
+          # ML service — scikit-learn classifiers
+          - path: /api/ml
+            pathType: Prefix
+            backend:
+              service:
+                name: ml-service
+                port:
+                  number: 8000
+
+          # Embedding service — direct embedding access
+          - path: /api/embed
+            pathType: Prefix
+            backend:
+              service:
+                name: embedding-service
+                port:
+                  number: 8080

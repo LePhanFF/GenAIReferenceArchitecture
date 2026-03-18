@@ -1,0 +1,117 @@
+# Dev resource patches — reduce CPU/memory requests to fit on smaller clusters.
+# GPU resources are NOT reduced (vLLM needs 1 GPU minimum).
+# KEDA still scales GPU pods to zero — the savings come from not running idle.
+
+# --- Inference: keep GPU but reduce CPU/memory overhead ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-inference
+spec:
+  template:
+    spec:
+      containers:
+        - name: vllm
+          resources:
+            requests:
+              nvidia.com/gpu: "1"
+              memory: "4Gi"
+              cpu: "1"
+            limits:
+              nvidia.com/gpu: "1"
+              memory: "6Gi"
+              cpu: "2"
+---
+# --- Embedding: reduce for dev ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embedding-service
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: tei
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+---
+# --- RAG service: minimal for dev ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-service
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: rag
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+# --- Agent service: minimal for dev ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-service
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: agent
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+# --- ML service: minimal for dev ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-service
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: ml
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+---
+# --- pgvector: smaller storage for dev ---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pgvector
+spec:
+  template:
+    spec:
+      containers:
+        - name: postgres
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"

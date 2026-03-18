@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-inference
+  labels:
+    app: vllm-inference
+    tier: gpu
+    # COST NOTE: This is the most expensive component.
+    # KEDA ScaledObject scales this to 0 replicas when no requests arrive.
+    # A single GPU node costs ~$1-3/hr — scaling to zero saves 80%+ on dev/staging.
+spec:
+  # Replicas managed by KEDA — do NOT set manually.
+  # KEDA will scale 0→3 based on HTTP request rate.
+  replicas: 0
+  selector:
+    matchLabels:
+      app: vllm-inference
+  template:
+    metadata:
+      labels:
+        app: vllm-inference
+        tier: gpu
+    spec:
+      # Tolerate GPU nodes (most clusters taint GPU nodes)
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: vllm
+          # vLLM OpenAI-compatible server — drop-in replacement for OpenAI API
+          image: vllm/vllm-openai:latest
+          args:
+            - "--model"
+            - "Qwen/Qwen2.5-1.5B-Instruct"
+            # Qwen2.5-1.5B-Instruct: ~3GB VRAM, fits on ANY GPU (T4, L4, A10G, etc.)
+            # Swap to Qwen2.5-7B-Instruct or larger for production
+            - "--max-model-len"
+            - "4096"
+            - "--port"
+            - "8000"
+            - "--trust-remote-code"
+            # GPU memory utilization — leave headroom for KV cache
+            - "--gpu-memory-utilization"
+            - "0.85"
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          resources:
+            requests:
+              # 1 GPU minimum — Qwen2.5-1.5B fits comfortably on a single GPU
+              nvidia.com/gpu: "1"
+              memory: "4Gi"
+              cpu: "2"
+            limits:
+              nvidia.com/gpu: "1"
+              memory: "8Gi"
+              cpu: "4"
+          # Model download can take 2-5 minutes on first boot
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+            # Total startup budget: 30 + (10 * 30) = 330 seconds
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 5
+            failureThreshold: 3
+          env:
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
+                  optional: true
+            # Cache models to PVC if available (avoid re-downloading)
+            - name: HF_HOME
+              value: /model-cache
+          volumeMounts:
+            - name: model-cache
+              mountPath: /model-cache
+            # vLLM needs shared memory for tensor parallel
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: model-cache
+          emptyDir:
+            sizeLimit: 10Gi
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi

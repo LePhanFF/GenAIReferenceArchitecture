@@ -1,0 +1,151 @@
+###############################################################################
+# GenAI Reference Architecture — Docker Compose (DGX Spark)
+#
+# Runs the full stack locally WITHOUT Kubernetes.
+# For quick development and testing on NVIDIA DGX Spark (128GB unified memory).
+#
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose logs -f vllm   # Watch vLLM startup
+#   docker compose down            # Stop all services
+#
+# Default model: Qwen/Qwen2.5-1.5B-Instruct (~3GB, fast startup)
+# To use a larger model, change VLLM_MODEL below.
+###############################################################################
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # pgvector — Vector database for RAG
+  # ---------------------------------------------------------------------------
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: genai-pgvector
+    environment:
+      POSTGRES_DB: ragdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgvector-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # vLLM — LLM inference server (GPU)
+  # ---------------------------------------------------------------------------
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: genai-vllm
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    command: >
+      --model ${VLLM_MODEL:-Qwen/Qwen2.5-1.5B-Instruct}
+      --host 0.0.0.0
+      --port 8001
+      --max-model-len ${VLLM_MAX_MODEL_LEN:-4096}
+      --gpu-memory-utilization ${VLLM_GPU_MEM:-0.5}
+      --dtype auto
+      --trust-remote-code
+    ports:
+      - "8001:8001"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  # ---------------------------------------------------------------------------
+  # Embedding Service
+  # ---------------------------------------------------------------------------
+  embedding-service:
+    build:
+      context: ../../services/embedding
+    container_name: genai-embedding
+    environment:
+      - MODEL_NAME=${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      - HOST=0.0.0.0
+      - PORT=8002
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # RAG Service
+  # ---------------------------------------------------------------------------
+  rag-service:
+    build:
+      context: ../../services/rag-service
+    container_name: genai-rag
+    environment:
+      - LLM_BASE_URL=http://vllm:8001/v1
+      - LLM_MODEL=${VLLM_MODEL:-Qwen/Qwen2.5-1.5B-Instruct}
+      - EMBEDDING_SERVICE_URL=http://embedding-service:8002
+      - PGVECTOR_HOST=pgvector
+      - PGVECTOR_PORT=5432
+      - PGVECTOR_DB=ragdb
+      - PGVECTOR_USER=postgres
+      - PGVECTOR_PASSWORD=postgres
+      - HOST=0.0.0.0
+      - PORT=8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      pgvector:
+        condition: service_healthy
+      vllm:
+        condition: service_healthy
+      embedding-service:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Agent Service
+  # ---------------------------------------------------------------------------
+  agent-service:
+    build:
+      context: ../../services/agent-service
+    container_name: genai-agent
+    environment:
+      - LLM_BASE_URL=http://vllm:8001/v1
+      - LLM_MODEL=${VLLM_MODEL:-Qwen/Qwen2.5-1.5B-Instruct}
+      - RAG_SERVICE_URL=http://rag-service:8000
+      - EMBEDDING_SERVICE_URL=http://embedding-service:8002
+      - HOST=0.0.0.0
+      - PORT=8003
+    ports:
+      - "8003:8003"
+    depends_on:
+      - rag-service
+
+  # ---------------------------------------------------------------------------
+  # ML Service
+  # ---------------------------------------------------------------------------
+  ml-service:
+    build:
+      context: ../../services/ml-service
+    container_name: genai-ml
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8004
+    ports:
+      - "8004:8004"
+
+volumes:
+  pgvector-data:

@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rag-ingestion
+  namespace: genai
+  labels:
+    app: rag-ingestion
+    pipeline: data
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: rag-ingestion
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ingest
+          image: ghcr.io/lehph/genai-rag-ingestion:latest
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          env:
+            - name: SOURCE_PATH
+              value: "s3://genai-data/documents"
+            - name: SOURCE_TYPE
+              value: "s3"
+            - name: EMBEDDING_SERVICE_URL
+              value: "http://embedding-service.genai.svc.cluster.local:8002"
+            - name: PGVECTOR_HOST
+              value: "pgvector.genai.svc.cluster.local"
+            - name: PGVECTOR_PORT
+              value: "5432"
+            - name: PGVECTOR_DB
+              value: "ragdb"
+            - name: PGVECTOR_USER
+              valueFrom:
+                secretKeyRef:
+                  name: pgvector-credentials
+                  key: username
+            - name: PGVECTOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pgvector-credentials
+                  key: password
+            - name: CHUNK_SIZE
+              value: "1000"
+            - name: CHUNK_OVERLAP
+              value: "200"
+            - name: COLLECTION_NAME
+              value: "documents"
+          envFrom:
+            - secretRef:
+                name: aws-credentials
+                optional: true

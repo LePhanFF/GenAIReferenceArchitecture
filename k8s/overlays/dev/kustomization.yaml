@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Dev overlay — minimal resources, single replicas, smaller limits.
+# COST NOTE: Dev cluster should use spot/preemptible nodes for CPU workloads
+# and a single small GPU node (T4 or L4) that KEDA scales the inference pod onto.
+
+resources:
+  - ../../base
+
+# Override image tags for dev
+images:
+  - name: genai/rag-service
+    newTag: dev
+  - name: genai/agent-service
+    newTag: dev
+  - name: genai/ml-service
+    newTag: dev
+
+patches:
+  # Reduce resource requests/limits for dev
+  - path: patches/resource-limits.yaml

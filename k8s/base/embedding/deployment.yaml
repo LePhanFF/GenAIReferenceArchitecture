@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embedding-service
+  labels:
+    app: embedding-service
+    tier: cpu
+    # COST NOTE: CPU-only workload. all-MiniLM-L6-v2 is ~80MB — runs on any node.
+    # Uses HuggingFace Text Embeddings Inference (TEI) for optimized serving.
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: embedding-service
+  template:
+    metadata:
+      labels:
+        app: embedding-service
+        tier: cpu
+    spec:
+      containers:
+        - name: tei
+          # HuggingFace Text Embeddings Inference — optimized embedding server
+          # Supports batching, ONNX, and is 10x faster than naive sentence-transformers
+          image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+          args:
+            - "--model-id"
+            - "sentence-transformers/all-MiniLM-L6-v2"
+            - "--port"
+            - "8080"
+            # Max concurrent requests — tune based on load
+            - "--max-concurrent-requests"
+            - "128"
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          resources:
+            requests:
+              # This model is tiny (~80MB) — minimal resources needed
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3

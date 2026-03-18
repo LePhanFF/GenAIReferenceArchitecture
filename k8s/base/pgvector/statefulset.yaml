@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pgvector
+  labels:
+    app: pgvector
+    tier: data
+spec:
+  serviceName: pgvector
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgvector
+  template:
+    metadata:
+      labels:
+        app: pgvector
+        tier: data
+    spec:
+      # Init container to ensure pgvector extension is available on startup
+      initContainers:
+        - name: init-pgvector
+          image: pgvector/pgvector:pg16
+          command:
+            - /bin/sh
+            - -c
+            - |
+              # The pgvector image already includes the extension.
+              # This init script creates the extension in the target database
+              # once PostgreSQL is ready (handled by the main container's entrypoint).
+              # We pre-create the SQL init script that will run on first boot.
+              mkdir -p /docker-entrypoint-initdb.d
+              cat > /docker-entrypoint-initdb.d/01-init-pgvector.sql << 'EOSQL'
+              -- Enable pgvector extension for vector similarity search
+              CREATE EXTENSION IF NOT EXISTS vector;
+
+              -- Create a default embeddings table
+              -- Dimension 384 matches all-MiniLM-L6-v2 output
+              CREATE TABLE IF NOT EXISTS embeddings (
+                id BIGSERIAL PRIMARY KEY,
+                content TEXT NOT NULL,
+                metadata JSONB,
+                embedding vector(384),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+              );
+
+              -- HNSW index for fast approximate nearest neighbor search
+              -- ef_construction=128 gives good recall; m=16 is standard
+              CREATE INDEX IF NOT EXISTS embeddings_embedding_idx
+                ON embeddings
+                USING hnsw (embedding vector_cosine_ops)
+                WITH (m = 16, ef_construction = 128);
+              EOSQL
+          volumeMounts:
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg16
+          ports:
+            - containerPort: 5432
+              name: postgres
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: "vectordb"
+            - name: POSTGRES_USER
+              value: "genai"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pgvector-credentials
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - genai
+                - -d
+                - vectordb
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - genai
+                - -d
+                - vectordb
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: pgvector-data
+              mountPath: /var/lib/postgresql/data
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: initdb
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: pgvector-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            # 10Gi is sufficient for dev; increase for production
+            storage: 10Gi

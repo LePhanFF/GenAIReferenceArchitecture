@@ -1,0 +1,77 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: vllm-inference-scaler
+  labels:
+    app: vllm-inference
+spec:
+  scaleTargetRef:
+    name: vllm-inference
+  # COST SAVER: Scale to zero when no traffic arrives.
+  # GPU pods cost $1-3/hr each — this eliminates idle GPU spend entirely.
+  minReplicaCount: 0
+  maxReplicaCount: 3
+  # Cool down: wait 5 minutes (300s) of zero traffic before scaling to zero.
+  # This prevents flapping during bursty traffic.
+  cooldownPeriod: 300
+  # How long to wait before scaling back up (keep low for responsiveness)
+  pollingInterval: 15
+  advanced:
+    restoreToOriginalReplicaCount: false
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 60
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Pods
+              value: 2
+              periodSeconds: 60
+  triggers:
+    # Scale based on HTTP request rate hitting the vLLM service.
+    # Uses Prometheus metrics from NGINX ingress controller.
+    # Alternative: use KEDA HTTP add-on for simpler setup.
+    - type: prometheus
+      metadata:
+        # Prometheus query: requests per second to the vLLM service
+        # Adjust the metric name to match your ingress controller's metrics
+        serverAddress: http://prometheus-server.monitoring.svc.cluster.local:9090
+        metricName: http_requests_total
+        query: |
+          sum(rate(nginx_ingress_controller_requests{service="vllm-inference",namespace="genai"}[1m]))
+        # Scale up when request rate exceeds 1 req/sec per pod
+        threshold: "1"
+        activationThreshold: "0.1"
+        # activationThreshold: minimum value to activate from zero.
+        # Even 0.1 req/sec (6 req/min) will wake up the first pod.
+---
+# ALTERNATIVE: If you use the KEDA HTTP Add-On (simpler, no Prometheus needed),
+# replace the ScaledObject above with an HTTPScaledObject:
+#
+# apiVersion: http.keda.sh/v1alpha1
+# kind: HTTPScaledObject
+# metadata:
+#   name: vllm-inference-http
+# spec:
+#   hosts:
+#     - genai.example.com
+#   pathPrefixes:
+#     - /api/rag
+#     - /api/agent
+#   scaleTargetRef:
+#     deployment: vllm-inference
+#     service: vllm-inference
+#     port: 8000
+#   replicas:
+#     min: 0
+#     max: 3
+#   scalingMetric:
+#     requestRate:
+#       targetValue: 5
+#       window: 1m
+#   scaledownPeriod: 300

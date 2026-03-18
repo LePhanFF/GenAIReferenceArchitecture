@@ -1,0 +1,42 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: data-preprocessing
+  namespace: genai
+  labels:
+    app: data-preprocessing
+    pipeline: data
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: data-preprocessing
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: preprocess
+          image: ghcr.io/lehph/genai-preprocessing:latest
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          env:
+            - name: INPUT_PATH
+              value: "s3://genai-data/raw/data.csv"
+            - name: OUTPUT_PATH
+              value: "s3://genai-data/processed/train.jsonl"
+            - name: OUTPUT_FORMAT
+              value: "jsonl"
+            - name: MIN_TEXT_LENGTH
+              value: "10"
+            - name: SAMPLE_FRACTION
+              value: "1.0"
+          envFrom:
+            - secretRef:
+                name: aws-credentials
+                optional: true

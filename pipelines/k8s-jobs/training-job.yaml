@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fine-tuning
+  namespace: genai
+  labels:
+    app: fine-tuning
+    pipeline: training
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 7200
+  template:
+    metadata:
+      labels:
+        app: fine-tuning
+    spec:
+      restartPolicy: OnFailure
+      # Prefer spot/preemptible nodes for cost savings
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "kubernetes.azure.com/scalesetpriority"
+          operator: "Equal"
+          value: "spot"
+          effect: "NoSchedule"
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      containers:
+        - name: trainer
+          image: ghcr.io/lehph/genai-training:latest
+          resources:
+            requests:
+              cpu: "4"
+              memory: "16Gi"
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: "32Gi"
+              nvidia.com/gpu: "1"
+          env:
+            - name: DATASET_PATH
+              value: "s3://genai-data/processed/train.jsonl"
+            - name: OUTPUT_PATH
+              value: "s3://genai-data/adapters/"
+            - name: MODEL_NAME
+              value: "Qwen/Qwen2.5-1.5B-Instruct"
+            - name: LORA_RANK
+              value: "16"
+            - name: LORA_ALPHA
+              value: "32"
+            - name: NUM_EPOCHS
+              value: "3"
+            - name: BATCH_SIZE
+              value: "4"
+            - name: MAX_SEQ_LENGTH
+              value: "2048"
+          envFrom:
+            - secretRef:
+                name: aws-credentials
+                optional: true
+            - secretRef:
+                name: wandb-credentials
+                optional: true
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: "8Gi"

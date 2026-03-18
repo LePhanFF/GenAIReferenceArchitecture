@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-service
+  labels:
+    app: ml-service
+    tier: cpu
+    # COST NOTE: Lightweight scikit-learn models. Runs on CPU.
+    # Intent classification and anomaly detection — sub-millisecond inference.
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ml-service
+  template:
+    metadata:
+      labels:
+        app: ml-service
+        tier: cpu
+    spec:
+      containers:
+        - name: ml
+          # FastAPI wrapping scikit-learn models
+          # Models: intent classification, anomaly detection
+          # Loaded from /models volume or bundled in image
+          image: genai/ml-service:latest
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          resources:
+            requests:
+              # scikit-learn models are tiny — minimal resources
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          env:
+            - name: MODEL_PATH
+              value: "/models"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3

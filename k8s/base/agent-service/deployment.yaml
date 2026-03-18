@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-service
+  labels:
+    app: agent-service
+    tier: cpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-service
+  template:
+    metadata:
+      labels:
+        app: agent-service
+        tier: cpu
+    spec:
+      containers:
+        - name: agent
+          # FastAPI app running LangChain Agent with tools:
+          #   - RAG lookup (calls rag-service)
+          #   - DuckDB query (in-process SQL on parquet/CSV)
+          #   - Embedding search (calls embedding-service)
+          image: genai/agent-service:latest
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          env:
+            # Service discovery — agent calls these backing services as tools
+            - name: RAG_SERVICE_URL
+              value: "http://rag-service.genai.svc.cluster.local:8000"
+            - name: EMBEDDING_SERVICE_URL
+              value: "http://embedding-service.genai.svc.cluster.local:8080"
+            - name: LLM_BASE_URL
+              value: "http://vllm-inference.genai.svc.cluster.local:8000/v1"
+            - name: LLM_MODEL_NAME
+              value: "Qwen/Qwen2.5-1.5B-Instruct"
+            - name: PGVECTOR_HOST
+              value: "pgvector.genai.svc.cluster.local"
+            - name: PGVECTOR_PORT
+              value: "5432"
+            - name: PGVECTOR_DATABASE
+              value: "vectordb"
+            - name: PGVECTOR_USER
+              value: "genai"
+            - name: PGVECTOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pgvector-credentials
+                  key: password
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
