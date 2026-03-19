@@ -1,0 +1,125 @@
+# =============================================================================
+# JupyterLab — Interactive Development Workbench
+# =============================================================================
+#
+# WHY JUPYTER IN THE CLUSTER:
+#   - Same network as all services (call vLLM, embedding, pgvector via K8s DNS)
+#   - No port-forwarding needed for service-to-service calls
+#   - Persistent notebooks on a PVC (survive pod restarts)
+#   - Prototype RAG chains, test prompts, visualize results — then promote to services/
+#   - CPU-only: doesn't compete with vLLM for GPU
+#
+# WORKFLOW:
+#   1. Open JupyterLab (kubectl port-forward svc/jupyter -n genai 8888:8888)
+#   2. Prototype a new chain/agent in a notebook
+#   3. Once it works, move the code into services/
+#   4. Build, deploy, done
+#
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jupyter
+  labels:
+    app: jupyter
+    tier: cpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jupyter
+  template:
+    metadata:
+      labels:
+        app: jupyter
+        tier: cpu
+    spec:
+      containers:
+        - name: jupyter
+          # jupyter/scipy-notebook includes pandas, scikit-learn, matplotlib, plotly
+          # We install additional AI/ML packages via pip at startup
+          image: jupyter/scipy-notebook:latest
+          ports:
+            - containerPort: 8888
+              name: http
+              protocol: TCP
+          resources:
+            # CPU-only — JupyterLab is a thin client that calls inference via API
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          # Install additional packages on startup
+          # These are the packages you need for GenAI development
+          command: ["bash", "-c"]
+          args:
+            - |
+              pip install --quiet \
+                langchain \
+                langchain-community \
+                langchain-openai \
+                langfuse \
+                httpx \
+                psycopg2-binary \
+                pgvector \
+                openai \
+                tiktoken \
+                chromadb && \
+              jupyter lab \
+                --ip=0.0.0.0 \
+                --port=8888 \
+                --no-browser \
+                --NotebookApp.token='genai' \
+                --NotebookApp.password='' \
+                --notebook-dir=/home/jovyan/notebooks
+          env:
+            # ---------------------------------------------------------------
+            # Service URLs — same env vars used by all services
+            # JupyterLab notebooks can use these to call platform services
+            # ---------------------------------------------------------------
+            - name: VLLM_BASE_URL
+              value: "http://inference:8000/v1"
+            - name: EMBEDDING_URL
+              value: "http://embedding:8000"
+            - name: PGVECTOR_HOST
+              value: "pgvector"
+            - name: PGVECTOR_PORT
+              value: "5432"
+            - name: PGVECTOR_DATABASE
+              value: "vectordb"
+            - name: PGVECTOR_USER
+              value: "postgres"
+            - name: PGVECTOR_PASSWORD
+              value: "postgres"
+            - name: LANGFUSE_HOST
+              value: "http://langfuse:3000"
+            # OpenAI-compatible endpoint for langchain_openai
+            - name: OPENAI_API_BASE
+              value: "http://inference:8000/v1"
+            - name: OPENAI_API_KEY
+              value: "not-needed"
+          volumeMounts:
+            # Persistent storage for notebooks — survives pod restarts
+            - name: notebooks
+              mountPath: /home/jovyan/notebooks
+          livenessProbe:
+            httpGet:
+              path: /api
+              port: 8888
+            initialDelaySeconds: 60    # pip install takes time on first boot
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api
+              port: 8888
+            initialDelaySeconds: 60
+            periodSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: notebooks
+          persistentVolumeClaim:
+            claimName: jupyter-notebooks-pvc

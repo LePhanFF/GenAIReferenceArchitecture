@@ -1,0 +1,21 @@
+# =============================================================================
+# PVC: Jupyter Notebook Storage
+# =============================================================================
+# WHY: Notebooks are your prototyping workspace. Without a PVC, you lose all
+# work when the pod restarts. 1Gi is plenty for notebooks (they're small).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jupyter-notebooks-pvc
+  labels:
+    app: jupyter
+spec:
+  accessModes:
+    - ReadWriteOnce          # Single pod — RWO is fine
+  resources:
+    requests:
+      storage: 1Gi
+  # On K3s: uses local-path provisioner (default)
+  # On EKS: uses gp3 EBS (default StorageClass)
+  # Uncomment to specify:
+  # storageClassName: local-path

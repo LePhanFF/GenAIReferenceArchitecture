@@ -1,0 +1,41 @@
+# =============================================================================
+# PVC: Training Checkpoints
+# =============================================================================
+#
+# WHY: Training runs save checkpoints every N steps. If a training job crashes
+# (OOM, node failure, preemption), you resume from the last checkpoint instead
+# of starting over. Without persistent storage, hours of GPU time are wasted.
+#
+# LOCAL (DGX Spark): Stored on local disk. Fine for dev.
+# CLOUD (EKS/GKE): Use S3/GCS instead — checkpoints need to survive cluster
+# deletion, and cloud storage supports versioning.
+#
+# SIZE GUIDE:
+#   - LoRA adapter checkpoints:  ~100-500MB each, 5-10 checkpoints = 5Gi
+#   - Full fine-tune checkpoints: ~model_size each (7B = ~14GB per checkpoint)
+#   - 20Gi covers LoRA fine-tuning with plenty of headroom
+#
+# USAGE IN TRAINING JOBS:
+#   volumeMounts:
+#     - name: checkpoints
+#       mountPath: /checkpoints
+#   Then in training script:
+#     --output_dir /checkpoints/run-001
+#     --save_steps 500
+#     --save_total_limit 3   # Keep only last 3 checkpoints to save space
+#
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: checkpoints-pvc
+  labels:
+    component: storage
+    purpose: checkpoints
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  # storageClassName: local-path

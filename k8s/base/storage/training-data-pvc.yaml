@@ -1,0 +1,32 @@
+# =============================================================================
+# PVC: Training Data
+# =============================================================================
+#
+# WHY: Training data (JSONL, Parquet, CSV) needs to persist across jobs.
+# Fine-tuning jobs and preprocessing pods both read from this volume.
+#
+# LOCAL (DGX Spark): Stores datasets on local disk via K3s local-path.
+# CLOUD (EKS/GKE): In production, you'd use S3/GCS instead (cheaper,
+# survives cluster deletion, supports versioning with DVC).
+# This PVC is for dev/prototyping where S3 setup is overkill.
+#
+# SIZE GUIDE:
+#   - Small datasets (Alpaca, custom JSONL):  1-5Gi
+#   - Medium datasets (OpenAssistant, Dolly): 5-20Gi
+#   - Large datasets (RedPajama, SlimPajama): Use S3/GCS, not PVC
+#
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: training-data-pvc
+  labels:
+    component: storage
+    purpose: training-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  # storageClassName: local-path

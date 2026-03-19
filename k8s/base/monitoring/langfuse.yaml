@@ -1,0 +1,125 @@
+# =============================================================================
+# LangFuse — LLM Observability Platform
+# =============================================================================
+#
+# WHY LANGFUSE OVER LANGSMITH:
+#   - Self-hosted: No data leaves your cluster (critical for enterprise/regulated)
+#   - Free: No per-trace pricing (LangSmith charges per trace at scale)
+#   - Same features: Trace logging, token tracking, latency, cost, evals
+#   - Open source: MIT license, active development
+#   - Works with LangChain, LlamaIndex, raw OpenAI SDK, or any HTTP client
+#
+# WHAT LANGFUSE PROVIDES:
+#   - Trace logging for LangChain chains/agents (every step visualized)
+#   - Token usage tracking per request, per user, per model
+#   - Latency breakdown (embedding time, retrieval time, generation time)
+#   - Cost estimation (maps tokens × model pricing)
+#   - Evaluation scores (human or LLM-as-judge)
+#   - Prompt management and versioning
+#   - Session tracking (group traces into conversations)
+#
+# INTEGRATION (add to your Python services):
+#   from langfuse.callback import CallbackHandler
+#   langfuse_handler = CallbackHandler(
+#       public_key="pk-...",
+#       secret_key="sk-...",
+#       host="http://langfuse.genai.svc.cluster.local:3000"
+#   )
+#   chain.invoke(input, config={"callbacks": [langfuse_handler]})
+#
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langfuse
+  labels:
+    app: langfuse
+    tier: cpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: langfuse
+  template:
+    metadata:
+      labels:
+        app: langfuse
+        tier: cpu
+    spec:
+      containers:
+        - name: langfuse
+          # LangFuse v2 — web UI + API server in one container
+          image: langfuse/langfuse:2
+          ports:
+            - containerPort: 3000
+              name: http
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          env:
+            # ---------------------------------------------------------------
+            # Database: reuse the existing pgvector PostgreSQL instance
+            # but use a SEPARATE database to avoid polluting vector data.
+            # Create the database first:
+            #   kubectl exec -it pgvector-0 -n genai -- psql -U postgres -c "CREATE DATABASE langfuse;"
+            # ---------------------------------------------------------------
+            - name: DATABASE_URL
+              value: "postgresql://postgres:postgres@pgvector.genai.svc.cluster.local:5432/langfuse"
+
+            # Auth — generate these once, keep them secret in production
+            # For dev, these defaults work. In prod, use K8s Secrets.
+            - name: NEXTAUTH_SECRET
+              value: "change-me-in-production"
+            - name: NEXTAUTH_URL
+              value: "http://langfuse.genai.svc.cluster.local:3000"
+
+            # Salt for API key hashing
+            - name: SALT
+              value: "change-me-in-production"
+
+            # Telemetry — disable phoning home (self-hosted = private)
+            - name: TELEMETRY_ENABLED
+              value: "false"
+
+            # Enable sign-up for first user, disable after setup
+            - name: NEXT_PUBLIC_SIGN_UP_DISABLED
+              value: "false"
+          livenessProbe:
+            httpGet:
+              path: /api/public/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/public/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langfuse
+  labels:
+    app: langfuse
+spec:
+  selector:
+    app: langfuse
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  type: ClusterIP
+  # Access via: kubectl port-forward svc/langfuse -n genai 3000:3000
+  # Or add to your Ingress for external access

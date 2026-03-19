@@ -1,0 +1,39 @@
+# =============================================================================
+# PVC: HuggingFace Model Cache
+# =============================================================================
+#
+# WHY: Models are large (1.5B = ~3GB, 7B = ~14GB, 70B = ~140GB).
+# Without persistent cache, every pod restart re-downloads the model from
+# HuggingFace Hub — that's 5-15 minutes of downtime per restart.
+#
+# With this PVC, models download once and persist across pod restarts.
+# The vLLM container mounts this at /root/.cache/huggingface (or HF_HOME).
+#
+# SIZE GUIDE:
+#   - 1 model (1.5B):   5Gi
+#   - 1 model (7B):     20Gi
+#   - Multiple models:  50Gi (keeps 2-3 models cached)
+#   - LoRA adapters:    ~100MB each (negligible)
+#
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-cache-pvc
+  labels:
+    component: storage
+    purpose: model-cache
+spec:
+  accessModes:
+    # ReadWriteOnce: single node can mount read-write.
+    # For multi-node clusters with multiple inference replicas,
+    # use ReadWriteMany (requires NFS or EFS/Filestore CSI).
+    # On DGX Spark (single node), RWO works perfectly.
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  # On K3s: uses local-path provisioner (default)
+  # On EKS: uses gp3 EBS — consider io2 for faster model loading
+  # Uncomment to specify:
+  # storageClassName: local-path

@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from app.chains import create_rag_chain
 from app.config import settings
 from app.ingestion import ingest_documents
+from app.metrics import metrics_endpoint, track_generation, track_query, track_retrieval
 
 logger = logging.getLogger(settings.service_name)
 logging.basicConfig(level=settings.log_level)
@@ -100,6 +101,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Prometheus metrics endpoint — scraped by ServiceMonitor (see k8s/base/monitoring/)
+app.add_route("/metrics", metrics_endpoint)
+
 
 # ---------------------------------------------------------------------------
 # Request / Response models
@@ -148,11 +152,14 @@ async def query(request: QueryRequest):
     start = time.time()
 
     try:
-        # Retrieve source documents
-        docs = await state.retriever.ainvoke(request.question)
+        with track_query():
+            # Retrieve source documents
+            with track_retrieval():
+                docs = await state.retriever.ainvoke(request.question)
 
-        # Run the full chain
-        answer = await state.rag_chain.ainvoke(request.question)
+            # Run the full chain
+            with track_generation():
+                answer = await state.rag_chain.ainvoke(request.question)
 
         latency_ms = (time.time() - start) * 1000
 

@@ -1,0 +1,208 @@
+# =============================================================================
+# Prometheus + Grafana Stack (kube-prometheus-stack)
+# =============================================================================
+#
+# WHY HELM, NOT RAW MANIFESTS:
+#   kube-prometheus-stack includes ~40 CRDs, 20+ deployments, and hundreds of
+#   recording/alerting rules. Maintaining raw YAML would be unmaintainable.
+#   Helm lets us override just what we need.
+#
+# WHAT THIS INSTALLS:
+#   - Prometheus:        Scrapes metrics from all pods/services
+#   - Grafana:           Dashboards (pre-loaded with K8s dashboards)
+#   - node-exporter:     Host-level metrics (CPU, RAM, disk, network)
+#   - kube-state-metrics: K8s object metrics (pod status, deployments, etc.)
+#   - Alertmanager:      Routes alerts to Slack/PagerDuty/email
+#
+# INSTALL COMMAND:
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm repo update
+#   helm install monitoring prometheus-community/kube-prometheus-stack \
+#     --namespace monitoring --create-namespace \
+#     --set grafana.adminPassword=admin \
+#     --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+#     --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false
+#
+# IMPORTANT: serviceMonitorSelectorNilUsesHelmValues=false tells Prometheus to
+# discover ServiceMonitors in ALL namespaces, not just the ones installed by Helm.
+# Without this, our custom ServiceMonitors below won't be scraped.
+#
+# ACCESS GRAFANA (dev/local):
+#   kubectl port-forward svc/monitoring-grafana -n monitoring 3000:80
+#   Open http://localhost:3000 (admin / admin)
+#
+# =============================================================================
+
+---
+# =============================================================================
+# ServiceMonitor: vLLM Inference Metrics
+# =============================================================================
+# WHY: vLLM exposes rich metrics at /metrics including:
+#   - vllm:num_requests_running (active requests)
+#   - vllm:num_requests_waiting (queued requests — watch this for scaling)
+#   - vllm:gpu_cache_usage_perc (KV cache pressure — if >90%, add capacity)
+#   - vllm:avg_generation_throughput_toks_per_s (throughput)
+#   - vllm:request_success_total / vllm:request_failure_total
+#   - vllm:time_to_first_token_seconds (TTFT — user-perceived latency)
+#   - vllm:e2e_request_latency_seconds (end-to-end latency)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vllm-inference-monitor
+  namespace: genai
+  labels:
+    app: vllm-inference
+spec:
+  selector:
+    matchLabels:
+      app: vllm-inference
+  endpoints:
+    - port: http          # Matches the port name in inference/service.yaml
+      path: /metrics
+      interval: 15s       # 15s is good for GPU workloads — fast enough to catch spikes
+      scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+      - genai
+
+---
+# =============================================================================
+# ServiceMonitor: RAG Service Metrics
+# =============================================================================
+# WHY: Track query latency, token usage, retrieval performance.
+# The RAG service exposes custom Prometheus metrics via prometheus_client
+# at /metrics (see services/rag-service/app/metrics.py).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rag-service-monitor
+  namespace: genai
+  labels:
+    app: rag-service
+spec:
+  selector:
+    matchLabels:
+      app: rag-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s       # CPU service — 30s is fine, reduces Prometheus load
+      scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+      - genai
+
+---
+# =============================================================================
+# ServiceMonitor: Embedding Service Metrics
+# =============================================================================
+# WHY: Track embedding latency and throughput. Sentence-transformers serving
+# frameworks (like TEI) expose Prometheus metrics at /metrics.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: embedding-service-monitor
+  namespace: genai
+  labels:
+    app: embedding
+spec:
+  selector:
+    matchLabels:
+      app: embedding
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+      - genai
+
+---
+# =============================================================================
+# Grafana Dashboard: LLM Inference Metrics
+# =============================================================================
+# WHY: Pre-load a dashboard so you don't have to build one from scratch.
+# Grafana auto-discovers ConfigMaps with the grafana_dashboard label.
+#
+# This dashboard shows:
+#   Row 1: Request rate, active requests, queue depth
+#   Row 2: TTFT (time to first token), e2e latency, throughput (tok/s)
+#   Row 3: GPU cache usage, GPU memory, GPU utilization
+#   Row 4: RAG query latency, retrieval time, generation time, token counts
+#
+# TO IMPORT COMMUNITY DASHBOARDS:
+#   - vLLM dashboard: https://grafana.com/grafana/dashboards/20658
+#   - NVIDIA GPU dashboard: https://grafana.com/grafana/dashboards/14574
+#   Import via Grafana UI > Dashboards > Import > paste dashboard ID
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-metrics-dashboard
+  namespace: monitoring
+  labels:
+    # This label tells the Grafana sidecar to auto-load this dashboard
+    grafana_dashboard: "1"
+data:
+  llm-metrics.json: |
+    {
+      "annotations": { "list": [] },
+      "title": "GenAI Platform - LLM Metrics",
+      "uid": "genai-llm-metrics",
+      "version": 1,
+      "panels": [
+        {
+          "title": "vLLM — Active Requests",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+          "targets": [
+            { "expr": "vllm:num_requests_running{namespace=\"genai\"}", "legendFormat": "running" },
+            { "expr": "vllm:num_requests_waiting{namespace=\"genai\"}", "legendFormat": "waiting" }
+          ]
+        },
+        {
+          "title": "vLLM — Latency (p50/p95/p99)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+          "targets": [
+            { "expr": "histogram_quantile(0.50, rate(vllm:e2e_request_latency_seconds_bucket{namespace=\"genai\"}[5m]))", "legendFormat": "p50" },
+            { "expr": "histogram_quantile(0.95, rate(vllm:e2e_request_latency_seconds_bucket{namespace=\"genai\"}[5m]))", "legendFormat": "p95" },
+            { "expr": "histogram_quantile(0.99, rate(vllm:e2e_request_latency_seconds_bucket{namespace=\"genai\"}[5m]))", "legendFormat": "p99" }
+          ]
+        },
+        {
+          "title": "vLLM — GPU KV Cache Usage",
+          "type": "gauge",
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+          "targets": [
+            { "expr": "vllm:gpu_cache_usage_perc{namespace=\"genai\"}", "legendFormat": "cache %" }
+          ],
+          "fieldConfig": { "defaults": { "max": 1, "thresholds": { "steps": [
+            { "color": "green", "value": 0 },
+            { "color": "yellow", "value": 0.7 },
+            { "color": "red", "value": 0.9 }
+          ]}}}
+        },
+        {
+          "title": "RAG — Query Latency (p95)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, rate(rag_query_duration_seconds_bucket{namespace=\"genai\"}[5m]))", "legendFormat": "total" },
+            { "expr": "histogram_quantile(0.95, rate(rag_retrieval_duration_seconds_bucket{namespace=\"genai\"}[5m]))", "legendFormat": "retrieval" },
+            { "expr": "histogram_quantile(0.95, rate(rag_generation_duration_seconds_bucket{namespace=\"genai\"}[5m]))", "legendFormat": "generation" }
+          ]
+        },
+        {
+          "title": "RAG — Token Usage Rate",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "targets": [
+            { "expr": "rate(rag_tokens_total{namespace=\"genai\", type=\"input\"}[5m])", "legendFormat": "input tok/s" },
+            { "expr": "rate(rag_tokens_total{namespace=\"genai\", type=\"output\"}[5m])", "legendFormat": "output tok/s" }
+          ]
+        }
+      ],
+      "time": { "from": "now-1h", "to": "now" },
+      "refresh": "30s"
+    }

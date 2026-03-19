@@ -95,9 +95,11 @@ spec:
             - name: shm
               mountPath: /dev/shm
       volumes:
+        # Persistent model cache — download once, survive pod restarts
+        # See k8s/base/storage/model-cache-pvc.yaml
         - name: model-cache
-          emptyDir:
-            sizeLimit: 10Gi
+          persistentVolumeClaim:
+            claimName: model-cache-pvc
         - name: shm
           emptyDir:
             medium: Memory
