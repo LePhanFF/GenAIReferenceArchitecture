@@ -34,7 +34,7 @@ locals {
 # Networking
 # -----------------------------------------------------------------------------
 module "networking" {
-  source = "../../../modules/networking/gcp"
+  source = "../../../../modules/networking/gcp"
 
   name       = local.cluster_name
   project_id = var.project_id
@@ -49,7 +49,7 @@ module "networking" {
 # GKE Cluster — ZONAL (FREE), ALL SPOT
 # -----------------------------------------------------------------------------
 module "gke" {
-  source = "../../../modules/gke"
+  source = "../../../../modules/gke"
 
   cluster_name = local.cluster_name
   project_id   = var.project_id

@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: inference
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: genai-platform
+spec:
+  description: Inference cluster workloads — serving, APIs, user-facing
+
+  # Only allow sources from our repo
+  sourceRepos:
+    - https://github.com/lehphyro/GenAIReferenceArchitecture.git
+
+  # Restrict deployments to the genai namespace on the inference cluster
+  destinations:
+    - namespace: genai
+      server: https://kubernetes.default.svc
+      name: inference-dev
+
+  # Allow all standard K8s resources
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: "*"
+    - group: apps
+      kind: "*"
+    - group: batch
+      kind: "*"
+    - group: keda.sh
+      kind: "*"
+    - group: networking.k8s.io
+      kind: "*"

@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Dev overlay for training workloads.
+# Small resource limits, single GPU, minimal storage.
+
+resources:
+  - ../../base
+
+# Override image tags for dev
+images:
+  - name: genai/training
+    newTag: dev
+  - name: genai/preprocessing
+    newTag: dev
+
+# Dev-specific patches: reduce resource requests
+patchesStrategicMerge:
+  - |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: jupyterlab
+    spec:
+      template:
+        spec:
+          containers:
+            - name: jupyter
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "1Gi"

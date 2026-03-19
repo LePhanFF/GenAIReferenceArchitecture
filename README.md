@@ -154,15 +154,19 @@ chmod +x setup.sh
 ### Option 4: Cloud (AWS EKS or GCP GKE)
 
 ```bash
-# AWS
-cd terraform/aws/
+# GCP inference cluster (recommended — $6/mo idle)
+cd infra/clusters/inference/dev/gcp/
 terraform init && terraform apply
 
-# GCP
-cd terraform/gcp/
+# GCP training cluster (separate, all spot)
+cd infra/clusters/training/dev/gcp/
 terraform init && terraform apply
 
-# ArgoCD syncs automatically from this repo
+# AWS inference cluster ($78/mo idle)
+cd infra/clusters/inference/dev/aws/
+terraform init && terraform apply
+
+# ArgoCD syncs workloads automatically from this repo
 ```
 
 ## Recommended LLMs for Development
@@ -179,37 +183,54 @@ terraform init && terraform apply
 
 ```
 GenAIReferenceArchitecture/
-|-- services/                    # FastAPI microservices
-|   |-- inference-service/       # vLLM wrapper
-|   |-- rag-service/             # RAG with LangChain
-|   |-- agent-service/           # AI agent
-|   |-- embedding-service/       # Text embeddings
-|   |-- ml-service/              # Classical ML
 |
-|-- pipelines/                   # Data & training pipelines
-|   |-- rag-ingestion/           # Document ingestion into pgvector
-|   |-- training/                # Fine-tuning (Unsloth + LoRA)
-|   |-- preprocessing/           # Data cleaning & transformation
-|   |-- k8s-jobs/                # K8s Job manifests for pipelines
+|-- infra/                         # Terraform — cluster provisioning
+|   |-- modules/                   #   Reusable modules (EKS, GKE, networking, artifact-store)
+|   |-- clusters/
+|       |-- training/              #   GPU-heavy, all spot, ephemeral (training + eval)
+|       |   |-- dev/aws/  dev/gcp/
+|       |-- inference/             #   Serving + apps, stable baseline, user-facing
+|           |-- dev/aws/  dev/gcp/
+|           |-- qa/  staging/  prod/   (future)
 |
-|-- k8s/                         # Kubernetes manifests
-|   |-- base/                    # Base Kustomize layer
+|-- workloads/                     # ArgoCD-managed K8s manifests (framework-agnostic)
+|   |-- argocd/                    #   App-of-apps, projects, per-cluster applications
+|   |-- training/                  #   Workloads for training cluster
+|   |   |-- base/                  #     JupyterLab, training jobs, storage PVCs
+|   |   |-- overlays/dev/
+|   |-- inference/                 #   Workloads for inference + apps cluster
+|   |   |-- base/                  #     vLLM, RAG, agent, ML, embedding, pgvector, monitoring
+|   |   |-- overlays/dev/
+|   |-- _template/                 #   Copy to add any new workload (framework-agnostic)
 |
-|-- terraform/                   # Infrastructure as Code
-|   |-- aws/                     # EKS + node groups + IAM
-|   |-- gcp/                     # GKE + node pools + IAM
+|-- services/                      # Application source code (Python FastAPI)
+|   |-- rag-service/               #   LangChain RAG (or swap for LlamaIndex, etc.)
+|   |-- agent-service/             #   LangChain agent (or swap for CrewAI, etc.)
+|   |-- ml-service/                #   scikit-learn classification + anomaly detection
+|   |-- embedding/                 #   sentence-transformers (CPU)
+|   |-- inference/                 #   vLLM config (no custom code)
 |
-|-- local-dev/                   # Local development setups
-|   |-- dgx-spark/               # DGX Spark: K3s or Docker Compose
-|   |-- kind/                    # KinD: CPU-only K8s in Docker
+|-- pipelines/                     # Pipeline source code (Dockerfiles + scripts)
+|   |-- training/                  #   Unsloth LoRA fine-tuning
+|   |-- rag-ingestion/             #   Document ingestion into pgvector
+|   |-- preprocessing/             #   Pandas data cleaning
 |
-|-- .github/workflows/           # CI/CD
-|   |-- ci.yaml                  # Lint, test, build, push images
-|   |-- terraform-plan.yaml      # Terraform plan on PRs
-|
-|-- CLAUDE.md                    # Claude Code project instructions
-|-- README.md                    # This file
+|-- docs/                          # Architecture & operations guides
+|-- local-dev/                     # DGX Spark (K3s) + Docker Compose + KinD
+|-- .github/workflows/             # CI/CD (build images, terraform plan)
 ```
+
+### Two-Cluster Architecture
+
+Training and inference are **separate clusters** — a training crash never affects production.
+They share nothing except the **artifact store** (S3/GCS).
+
+```
+TRAINING CLUSTER ──write──→ ARTIFACT STORE ──read──→ INFERENCE CLUSTER
+(GPU, spot, ephemeral)     (S3/GCS, versioned)     (GPU+CPU, stable, user-facing)
+```
+
+See [docs/CLUSTER_TOPOLOGY.md](docs/CLUSTER_TOPOLOGY.md) and [docs/ARTIFACT_PIPELINE.md](docs/ARTIFACT_PIPELINE.md).
 
 ## GitOps Flow
 

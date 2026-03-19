@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: genai
+  labels:
+    app.kubernetes.io/part-of: genai-platform
+    # Cost tracking: tag all resources in this namespace for chargeback
+    cost-center: ai-platform

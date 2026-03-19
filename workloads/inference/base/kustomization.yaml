@@ -30,23 +30,18 @@ resources:
   - pgvector/statefulset.yaml
   - pgvector/service.yaml
 
+  # Autoscaling
+  - keda/keda-install.yaml
+
   # Monitoring & observability
-  # NOTE: prometheus-stack.yaml and opencost.yaml are Helm-based — they contain
-  # ServiceMonitors and ConfigMaps only. Install the Helm charts separately
-  # (see comments in each file for install commands).
   - monitoring/prometheus-stack.yaml
   - monitoring/langfuse.yaml
-  # monitoring/opencost.yaml is Helm-only — ServiceMonitor lives in monitoring namespace
-
-  # Interactive development
-  - jupyter/deployment.yaml
-  - jupyter/service.yaml
-  - jupyter/pvc.yaml
 
   # Persistent storage
   - storage/model-cache-pvc.yaml
-  - storage/training-data-pvc.yaml
-  - storage/checkpoints-pvc.yaml
+
+  # Jobs
+  - jobs/rag-ingestion-job.yaml
 
   # Ingress
   - ingress.yaml
